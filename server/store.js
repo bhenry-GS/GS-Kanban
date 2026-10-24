@@ -35,6 +35,7 @@ function openStore(file) {
   const emit = (ev) => listeners.forEach((fn) => fn(ev));
 
   return {
+    db,   // shared with the accounts tables in auth.js
     all() {
       const out = {};
       COLLECTIONS.forEach((c) => (out[c] = {}));

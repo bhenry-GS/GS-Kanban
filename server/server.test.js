@@ -26,16 +26,19 @@ test("API set, update, delete round trip", async () => {
   const server = createApp(store).listen(0);
   const base = "http://127.0.0.1:" + server.address().port + "/api/";
   try {
-    let r = await fetch(base + "projects/p1", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "A", board: "pre" }) });
+    let r = await fetch(base + "auth/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Admin", email: "a@x.co", password: "longenough" }) });
+    const cookie = r.headers.get("set-cookie").split(";")[0];
+    const api = (url, o = {}) => fetch(url, Object.assign({}, o, { headers: Object.assign({ Cookie: cookie }, o.headers) }));
+    r = await api(base + "projects/p1", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "A", board: "pre" }) });
     assert.strictEqual(r.status, 200);
-    r = await fetch(base + "projects/p1", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ column: "Quote" }) });
+    r = await api(base + "projects/p1", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ column: "Quote" }) });
     assert.deepStrictEqual(await r.json(), { name: "A", board: "pre", column: "Quote" });
-    r = await fetch(base + "projects/missing", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: "{}" });
+    r = await api(base + "projects/missing", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: "{}" });
     assert.strictEqual(r.status, 404);
-    r = await fetch(base + "secrets/x", { method: "PUT", headers: { "Content-Type": "application/json" }, body: "{}" });
+    r = await api(base + "secrets/x", { method: "PUT", headers: { "Content-Type": "application/json" }, body: "{}" });
     assert.strictEqual(r.status, 400);
-    await fetch(base + "projects/p1", { method: "DELETE" });
-    assert.deepStrictEqual((await (await fetch(base + "all")).json()).projects, {});
+    await api(base + "projects/p1", { method: "DELETE" });
+    assert.deepStrictEqual((await (await api(base + "all")).json()).projects, {});
   } finally {
     server.close();
   }

@@ -7,7 +7,7 @@ Shared Kanban boards for the GS team:
 - **Pathway templates.** A new project picks up its tasks from a template, with due dates counted back from the project due date. Templates are edited in the app.
 - **Alerts** for late tasks, prerequisites that aren't done ahead of a due date, unassigned work due this week, and projects nearing their deadline.
 - **My tasks**: a personal list for each person, sorted by due date.
-- **D-Tools Cloud sync** (in progress): won D-Tools projects become Post sales projects.
+- **D-Tools Cloud sync**: open D-Tools projects become Post sales projects and open opportunities become Pre sales projects, placed in the column that matches their D-Tools stage.
 
 ## Run it
 
@@ -29,6 +29,7 @@ All settings are environment variables. Keep secrets in your host's secret setti
 | `DATA_DIR` | Folder for the database (default `./data`; `/data` in Docker) |
 | `BASIC_AUTH_USER`, `BASIC_AUTH_PASS` | Optional shared sign-in for the whole app |
 | `DTOOLS_API_KEY` | D-Tools Cloud API key. Sync stays off without it |
+| `DTOOLS_BASIC_AUTH` | The fixed `Authorization` header value from D-Tools Cloud's API docs (starts with `Basic `). Sync stays off without it |
 | `DTOOLS_SYNC_MINUTES` | How often to sync (default 15) |
 
 ## Deploy
@@ -40,5 +41,5 @@ The `Dockerfile` runs anywhere that keeps a persistent volume mounted at `/data`
 - `public/index.html`: the whole board UI (plain HTML, CSS and JavaScript, no build step). The same page also runs as a claude.ai Artifact, where it uses Claude's built-in store and the Zoom connector for "Find tasks in Zoom chat".
 - `server/index.js`: web server, JSON API (`/api/all`, `PUT`/`PATCH`/`DELETE /api/:collection/:id`) and live updates (`/api/stream`).
 - `server/store.js`: document store on SQLite.
-- `server/dtools.js`: D-Tools Cloud sync. The import logic is in place and tested; the call that fetches projects from D-Tools still needs wiring to their API.
+- `server/dtools.js`: D-Tools Cloud sync. Pulls projects and opportunities every `DTOOLS_SYNC_MINUTES`. A project already on the board only has its name, number, customer and D-Tools stage refreshed, so board edits are kept. The stage-to-column map is at the top of the file.
 - `server/templates.js`: creates a project's tasks from a template on the server.

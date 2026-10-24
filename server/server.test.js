@@ -5,7 +5,7 @@ const os = require("os");
 const fs = require("fs");
 const { openStore, deepMerge } = require("./store");
 const { createApp, seedTemplates } = require("./index");
-const { importProjects } = require("./dtools");
+const { importProjects, normalize, syncOnce } = require("./dtools");
 const { createTasksFromTemplate, addDays } = require("./templates");
 
 function tmpStore() {
@@ -41,20 +41,77 @@ test("API set, update, delete round trip", async () => {
   }
 });
 
+const importOpts = (store) => ({
+  columnsFor: (b) => (b === "pre" ? ["Lead", "Quote"] : ["Kickoff", "Programming"]),
+  templateFor: (b) => (b === "post" ? "tpl-post-standard" : "tpl-pre-standard"),
+  createTasks: (pid, tid, due) => createTasksFromTemplate(store, pid, tid, due),
+});
+
 test("D-Tools import creates once, then only refreshes fields", () => {
   const store = tmpStore();
   seedTemplates(store);
-  const opts = { columns: ["Kickoff"], templateId: "tpl-post-standard", createTasks: (pid, tid, due) => createTasksFromTemplate(store, pid, tid, due) };
-  const created = importProjects(store, [{ id: 42, number: "P-1", name: "Lobby AV", client: "Acme", due: "2026-12-31" }], opts);
+  const created = importProjects(store, [{ id: "a1", board: "post", column: "Kickoff", number: "P-1", name: "Lobby AV", client: "Acme", due: "2026-12-31" }], importOpts(store));
   assert.strictEqual(created.length, 1);
   const pid = created[0];
   store.update("projects", pid, { column: "Programming" });
-  importProjects(store, [{ id: 42, number: "P-1", name: "Lobby AV rev B", client: "Acme" }], opts);
+  importProjects(store, [{ id: "a1", board: "post", column: "Kickoff", number: "P-1", name: "Lobby AV rev B", client: "Acme", stage: "Scheduled" }], importOpts(store));
   const all = store.all();
   assert.strictEqual(Object.keys(all.projects).length, 1);
   assert.strictEqual(all.projects[pid].name, "Lobby AV rev B");
+  assert.strictEqual(all.projects[pid].dtoolsStage, "Scheduled");
   assert.strictEqual(all.projects[pid].column, "Programming");
   const tasks = Object.values(all.tasks).filter((t) => t.projectId === pid);
   assert.strictEqual(tasks.length, 16);
   assert.ok(tasks.find((t) => t.title === "Closeout package and customer sign-off").due === "2026-12-31");
+});
+
+test("D-Tools projects already under way get no template tasks", () => {
+  const store = tmpStore();
+  seedTemplates(store);
+  const [pid] = importProjects(store, [{ id: "b2", board: "post", column: "Programming", name: "Rack room" }], importOpts(store));
+  assert.strictEqual(store.get("projects", pid).column, "Programming");
+  assert.strictEqual(Object.keys(store.all().tasks).length, 0);
+});
+
+test("normalize maps stages and drops completed, archived and closed records", () => {
+  const recs = normalize(
+    [
+      { id: "p1", name: "A", number: "P-1", clientName: "C", systemState: "Open", stage: "Materials Received" },
+      { id: "p2", name: "B", systemState: "Completed", stage: "Completed/ Not Invoiced" },
+      { id: "p3", name: "C", systemState: "Open", stage: "Mystery", isArchived: true },
+    ],
+    [
+      { id: "o1", name: "D", systemState: "Open", stage: "Proposal Shared", estimatedCloseDate: "2026-11-30T00:00:00" },
+      { id: "o2", name: "E", systemState: "Won", stage: "Proposal Shared" },
+    ],
+  );
+  assert.deepStrictEqual(recs.map((r) => [r.id, r.board, r.column, r.due || null]), [
+    ["p1", "post", "Procurement & Build", null],
+    ["o1", "pre", "Quote", "2026-11-30"],
+  ]);
+});
+
+test("syncOnce pages through D-Tools with both auth headers", async () => {
+  const store = tmpStore();
+  seedTemplates(store);
+  process.env.DTOOLS_API_KEY = "k"; process.env.DTOOLS_BASIC_AUTH = "Basic x";
+  const seen = [];
+  const realFetch = global.fetch;
+  global.fetch = async (url, opts) => {
+    seen.push([url, opts.headers["X-API-Key"], opts.headers.Authorization]);
+    const page = Number(new URL(url).searchParams.get("page"));
+    const body = url.includes("GetProjects")
+      ? { projects: page === 1 ? Array.from({ length: 100 }, (_, i) => ({ id: "p" + i, name: "P" + i, systemState: "Open", stage: "Scheduled" })) : [{ id: "last", name: "Last", systemState: "New", stage: "Accepted" }] }
+      : { opportunities: [] };
+    return { ok: true, json: async () => body };
+  };
+  try {
+    const created = await syncOnce(store);
+    assert.strictEqual(created.length, 101);
+    assert.ok(seen.every(([, k, a]) => k === "k" && a === "Basic x"));
+    assert.strictEqual(seen.filter(([u]) => u.includes("GetProjects")).length, 2);
+  } finally {
+    global.fetch = realFetch;
+    delete process.env.DTOOLS_API_KEY; delete process.env.DTOOLS_BASIC_AUTH;
+  }
 });

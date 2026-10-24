@@ -45,6 +45,15 @@ All settings are environment variables. Keep secrets in your host's secret setti
 
 The `Dockerfile` runs anywhere that keeps a persistent volume mounted at `/data` (Render, Fly.io, Railway, or a server in the office). It needs a host that runs a server: GitHub Pages only serves static files, so it can't run the app or its logins. Serve it over HTTPS so passwords aren't sent in the clear.
 
+### Render
+
+`render.yaml` sets up the app on [Render](https://render.com) with HTTPS, a 1 GB disk for the database, and a redeploy on every change to `main`.
+
+1. Sign in to Render with GitHub and give it access to this repo.
+2. Choose **New > Blueprint**, pick this repo, and click **Apply**. Paste the D-Tools values when asked, or leave them blank to turn sync off.
+3. When the deploy finishes, open the `https://….onrender.com` address and create the first admin account straight away.
+4. Optional: add your own domain under the service's **Settings > Custom Domains**. Render issues the certificate.
+
 ## Layout
 
 - `public/index.html`: the whole board UI (plain HTML, CSS and JavaScript, no build step). The same page also runs as a claude.ai Artifact, where it uses Claude's built-in store and the Zoom connector for "Find tasks in Zoom chat".

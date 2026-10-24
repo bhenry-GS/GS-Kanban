@@ -1,0 +1,21 @@
+# Render Blueprint: in Render, choose New > Blueprint and pick this repo.
+# Secrets (the D-Tools keys) are asked for during setup and never stored here.
+services:
+  - type: web
+    name: gs-kanban
+    runtime: docker
+    plan: starter            # a paid plan is needed for the disk below
+    branch: main
+    autoDeploy: true
+    healthCheckPath: /api/health
+    disk:
+      name: data
+      mountPath: /data       # the SQLite database lives here
+      sizeGB: 1
+    envVars:
+      - key: TRUST_PROXY
+        value: "1"           # Render ends HTTPS in front of the app
+      - key: DTOOLS_API_KEY
+        sync: false
+      - key: DTOOLS_BASIC_AUTH
+        sync: false

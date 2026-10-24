@@ -214,9 +214,15 @@ details.deps[open] summary { border-color: var(--accent); color: var(--accent) }
 .arow .due-cell select { flex: 1 1 auto; width: auto }
 .arow-head { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; border-top: 0 }
 
-.mrow { display: grid; grid-template-columns: minmax(140px, 1fr) 190px auto auto auto; gap: 10px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--line) }
+.mrow { display: grid; grid-template-columns: minmax(140px, 1fr) auto auto auto; gap: 10px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--line) }
 .checks { display: flex; gap: 10px; font-size: 12.5px }
 .checks label { display: flex; gap: 4px; align-items: center }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center }
+.mrow .chips { grid-column: 1 / -1 }
+.addrow .chips { flex-basis: 100% }
+.chip { display: inline-flex; gap: 5px; align-items: center; padding: 2px 10px; border: 1px solid var(--line-strong); border-radius: 999px; font-size: 12.5px; cursor: pointer; background: var(--surface); user-select: none }
+.chip input { margin: 0 }
+.chip:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); font-weight: 600 }
 
 .banner { margin-bottom: 14px; padding: 9px 12px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); font-size: 13px }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: var(--bg); padding: 8px 14px; border-radius: 8px; z-index: 40; font-size: 13px; max-width: calc(100% - 32px) }
@@ -260,9 +266,9 @@ const BOARDS = ["pre", "post"];
 const BOARD_NAME = { pre: "Pre sales", post: "Post sales" };
 const ROLES = {
   pre: ["Sales", "Engineering"],
-  post: ["PM", "Engineering", "Billing", "Shipping & Receiving", "Programming", "Drafting"],
+  post: ["PM", "Engineering", "Billing", "Shipping & Receiving", "Programming", "Drafting", "Commissioning"],
 };
-const ALL_ROLES = ["Sales", "PM", "Engineering", "Billing", "Shipping & Receiving", "Programming", "Drafting"];
+const ALL_ROLES = ["Sales", "PM", "Engineering", "Billing", "Shipping & Receiving", "Programming", "Drafting", "Commissioning"];
 const DEFAULT_COLUMNS = {
   pre: ["Lead", "Qualify", "Engineering review", "Quote", "Negotiation", "Won / Lost"],
   post: ["Kickoff", "Design & Drafting", "Programming", "Procurement & Build", "Ship & Install", "Billing & Closeout", "Complete"],
@@ -312,9 +318,21 @@ function initials(name) { return String(name || "?").split(/\s+/).filter(Boolean
 function avatar(memberId) {
   const m = S.members[memberId];
   if (!m) return '<span class="avatar none" title="Unassigned">?</span>';
-  return '<span class="avatar" style="background:hsl(' + hue(m.id) + ' 45% 42%)" title="' + esc(m.name + " · " + m.role) + '">' + esc(initials(m.name)) + "</span>";
+  return '<span class="avatar" style="background:hsl(' + hue(m.id) + ' 45% 42%)" title="' + esc(m.name + " · " + rolesOf(m).join(", ")) + '">' + esc(initials(m.name)) + "</span>";
 }
 const memberName = (id) => (S.members[id] ? S.members[id].name : "Unassigned");
+// members hold a list of roles; older records only have the single `role` field
+function rolesOf(m) { return !m ? [] : Array.isArray(m.roles) && m.roles.length ? m.roles : m.role ? [m.role] : []; }
+const hasRole = (m, role) => rolesOf(m).includes(role);
+const sortRoles = (rs) => ALL_ROLES.filter((r) => rs.includes(r)).concat(rs.filter((r) => !ALL_ROLES.includes(r)));
+function joinList(xs) { return xs.length < 2 ? xs.join("") : xs.slice(0, -1).join(", ") + " and " + xs[xs.length - 1]; }
+// `role` stays as the first role so anything still reading the old field keeps working
+const roleFields = (rs) => ({ roles: sortRoles(rs), role: sortRoles(rs)[0] || "" });
+function roleChips(selected, attrs) {
+  return '<span class="chips" role="group" aria-label="Roles">' + sortRoles(ALL_ROLES.concat(selected.filter((r) => !ALL_ROLES.includes(r)))).map((r) =>
+    '<label class="chip"><input type="checkbox" value="' + esc(r) + '" ' + attrs + (selected.includes(r) ? " checked" : "") + "> " + esc(r) + "</label>").join("") + "</span>";
+}
+const checkedRoles = (form) => Array.from(form.querySelectorAll('input[name="role"]:checked')).map((x) => x.value);
 const boardTag = (b) => '<span class="tag ' + b + '">' + esc(BOARD_NAME[b] || b) + "</span>";
 const columnsFor = (b) => (S.config.boards && Array.isArray(S.config.boards[b]) && S.config.boards[b].length ? S.config.boards[b] : DEFAULT_COLUMNS[b]);
 const sortedMembers = () => Object.values(S.members).sort((a, b) => a.name.localeCompare(b.name));
@@ -591,12 +609,12 @@ function renderMine() {
     body += '<div class="group-label ' + cls + '"><span class="eyebrow" style="color:inherit">' + label + '</span><span class="due">' + ts.length + "</span></div><ul class=\"rows\">" + ts.map((t) => taskRow(t)).join("") + "</ul>";
   }
   const m = S.members[who];
-  const unclaimed = m ? Object.values(S.tasks).filter((t) => !t.assigneeId && t.role === m.role && t.status !== "done" && live(t) && (m.boards || BOARDS).includes(S.projects[t.projectId].board)).sort(byDue) : [];
+  const unclaimed = m ? Object.values(S.tasks).filter((t) => !t.assigneeId && hasRole(m, t.role) && t.status !== "done" && live(t) && (m.boards || BOARDS).includes(S.projects[t.projectId].board)).sort(byDue) : [];
   return head +
     '<div class="panel"><div class="panel-head"><h2>Assigned</h2><span class="hint">' + all.filter((t) => t.status !== "done").length + " open</span></div>" +
       (body || '<div class="empty"><strong>Nothing assigned right now</strong>Tasks assigned on either board show up here, soonest first.</div>') + "</div>" +
-    (m ? '<div class="panel"><div class="panel-head"><h2>Open ' + esc(m.role) + ' tasks with no one assigned</h2><span class="hint">' + unclaimed.length + "</span></div>" +
-      (unclaimed.length ? '<ul class="rows">' + unclaimed.map((t) => taskRow(t, { claim: true })).join("") + "</ul>" : '<div class="empty">Every ' + esc(m.role) + " task has an owner.</div>") + "</div>" : "");
+    (m && rolesOf(m).length ? '<div class="panel"><div class="panel-head"><h2>Open ' + esc(joinList(rolesOf(m))) + ' tasks with no one assigned</h2><span class="hint">' + unclaimed.length + "</span></div>" +
+      (unclaimed.length ? '<ul class="rows">' + unclaimed.map((t) => taskRow(t, { claim: true })).join("") + "</ul>" : '<div class="empty">Every ' + esc(joinList(rolesOf(m))) + " task has an owner.</div>") + "</div>" : "");
 }
 
 /* alerts */
@@ -701,7 +719,7 @@ function renderRuleEditor() {
     "</div>";
   const rows = d.actions.map((a, i) => {
     const assign = '<select aria-label="Assign to" data-action="rule-act" data-k="assign" data-i="' + i + '">' + opt(ASSIGN_ROLE, "Least busy " + a.role, a.assign) + opt("", "Unassigned", a.assign) +
-      '<optgroup label="Person">' + members.map((m) => opt(m.id, m.name + (m.role !== a.role ? " · " + m.role : ""), a.assign)).join("") +
+      '<optgroup label="Person">' + members.map((m) => opt(m.id, m.name + (hasRole(m, a.role) ? "" : " · " + rolesOf(m).join(", ")), a.assign)).join("") +
       (a.assign && a.assign !== ASSIGN_ROLE && !members.find((m) => m.id === a.assign) ? opt(a.assign, memberName(a.assign), a.assign) : "") + "</optgroup></select>";
     return '<div class="arow">' +
       '<div class="title-cell"><input type="text" aria-label="Task to add" placeholder="Task to add" data-action="rule-act" data-k="title" data-i="' + i + '" value="' + esc(a.title) + '"></div>' +
@@ -719,27 +737,26 @@ function renderRuleEditor() {
     '<div class="rule-when" style="padding-bottom:4px"><span class="eyebrow">Then add these tasks to the project</span></div>' +
     '<div class="arow arow-head"><span>Task</span><span>Role</span><span>Assign to</span><span>Due</span><span>Stage</span><span></span></div>' +
     rows +
-    '<div class="addrow"><button class="btn small" data-action="act-add">Add another task</button><span class="hint">“Least busy” picks whoever in that role on this board has the fewest open tasks. A rule runs once per project for each column move or finished task, so moving a project back and forth won\'t add duplicates.</span></div></div>';
+    '<div class="addrow"><button class="btn small" data-action="act-add">Add another task</button><span class="hint">“Least busy” picks, from the people on this board who have that role, whoever has the fewest open tasks. A rule runs once per project for each column move or finished task, so moving a project back and forth won\'t add duplicates.</span></div></div>';
 }
 
 /* team */
 function renderTeam() {
   const ms = sortedMembers();
-  const head = '<div class="view-head"><h1>Team</h1><span class="sub">People who can be assigned tasks, and which boards they work on</span></div>';
+  const head = '<div class="view-head"><h1>Team</h1><span class="sub">People who can be assigned tasks, their roles, and which boards they work on</span></div>';
   const rows = ms.map((m) => {
     const bs = m.boards || BOARDS;
     const open = Object.values(S.tasks).filter((t) => t.assigneeId === m.id && t.status !== "done").length;
     return '<div class="mrow"><div style="display:flex;gap:8px;align-items:center;min-width:0">' + avatar(m.id) + '<input type="text" aria-label="Name" style="flex:1;min-width:0" data-action="member-field" data-k="name" data-id="' + esc(m.id) + '" value="' + esc(m.name) + '"></div>' +
-      '<select aria-label="Role" data-action="member-field" data-k="role" data-id="' + esc(m.id) + '">' + ALL_ROLES.map((r) => "<option" + (r === m.role ? " selected" : "") + ">" + esc(r) + "</option>").join("") + "</select>" +
       '<span class="checks">' + BOARDS.map((b) => '<label><input type="checkbox" data-action="member-board" data-id="' + esc(m.id) + '" data-board="' + b + '"' + (bs.includes(b) ? " checked" : "") + "> " + BOARD_NAME[b] + "</label>").join("") + "</span>" +
       '<span class="hint">' + open + " open</span>" +
-      '<span style="display:flex;gap:6px">' + (m.id === S.me ? '<span class="tag">You</span>' : '<button class="btn small" data-action="this-is-me" data-id="' + esc(m.id) + '">This is me</button>') + '<button class="btn small danger" data-action="del-member" data-id="' + esc(m.id) + '">Remove</button></span></div>';
+      '<span style="display:flex;gap:6px">' + (m.id === S.me ? '<span class="tag">You</span>' : '<button class="btn small" data-action="this-is-me" data-id="' + esc(m.id) + '">This is me</button>') + '<button class="btn small danger" data-action="del-member" data-id="' + esc(m.id) + '">Remove</button></span>' +
+      roleChips(rolesOf(m), 'data-action="member-role" data-id="' + esc(m.id) + '"') + "</div>";
   }).join("");
   return head + '<div class="panel"><div class="panel-head"><h2>People</h2><span class="hint">' + ms.length + "</span></div>" +
     (rows || '<div class="empty"><strong>No one on the team yet</strong>Add people below, then pick yourself in "Viewing as".</div>') +
     '<form class="addrow" data-form="add-member"><input type="text" id="new-member-name" placeholder="Full name" required>' +
-      '<select id="new-member-role" aria-label="Role">' + ALL_ROLES.map((r) => "<option>" + esc(r) + "</option>").join("") + "</select>" +
-      '<button class="btn primary small" type="submit">Add person</button></form></div>';
+      '<button class="btn primary small" type="submit">Add person</button>' + roleChips([], 'name="role"') + "</form></div>";
 }
 
 /* modals */
@@ -811,8 +828,8 @@ function taskEditRow(t, all, members, roles) {
   const deps = openDeps(t);
   const lateDeps = deps.filter(() => t.due && daysFromToday(t.due) <= WEEK_DAYS);
   const others = all.filter((o) => o.id !== t.id);
-  const sortedMs = members.slice().sort((a, b) => (b.role === t.role) - (a.role === t.role) || a.name.localeCompare(b.name));
-  const assigneeOpts = '<option value="">Unassigned</option>' + sortedMs.map((m) => '<option value="' + esc(m.id) + '"' + (m.id === t.assigneeId ? " selected" : "") + ">" + esc(m.name) + (m.role !== t.role ? " · " + esc(m.role) : "") + "</option>").join("") +
+  const sortedMs = members.slice().sort((a, b) => hasRole(b, t.role) - hasRole(a, t.role) || a.name.localeCompare(b.name));
+  const assigneeOpts = '<option value="">Unassigned</option>' + sortedMs.map((m) => '<option value="' + esc(m.id) + '"' + (m.id === t.assigneeId ? " selected" : "") + ">" + esc(m.name) + (hasRole(m, t.role) ? "" : " · " + esc(rolesOf(m).join(", "))) + "</option>").join("") +
     (t.assigneeId && !sortedMs.find((m) => m.id === t.assigneeId) ? '<option value="' + esc(t.assigneeId) + '" selected>' + esc(memberName(t.assigneeId)) + "</option>" : "");
   const depCount = (t.dependsOn || []).length;
   return '<div class="trow">' +
@@ -935,7 +952,7 @@ async function zoomSearch(pid, query) {
 const ASSIGN_ROLE = "@role";   // assign value meaning "least busy person in the task's role"
 function openCount(memberId) { return Object.values(S.tasks).filter((t) => t.assigneeId === memberId && t.status !== "done").length; }
 function leastBusy(b, role) {
-  const ms = Object.values(S.members).filter((m) => m.role === role && (m.boards || BOARDS).includes(b));
+  const ms = Object.values(S.members).filter((m) => hasRole(m, role) && (m.boards || BOARDS).includes(b));
   ms.sort((x, y) => openCount(x.id) - openCount(y.id) || x.name.localeCompare(y.name));
   return ms.length ? ms[0].id : null;
 }
@@ -1033,7 +1050,7 @@ function createProject(b, f) {
   return id;
 }
 function defaultAssignee(b, role) {
-  const ms = Object.values(S.members).filter((m) => m.role === role && (m.boards || BOARDS).includes(b));
+  const ms = Object.values(S.members).filter((m) => hasRole(m, role) && (m.boards || BOARDS).includes(b));
   return ms.length === 1 ? ms[0].id : null;   // only auto-assign when there is exactly one person in that role
 }
 function saveConfigColumns(b, cols) {
@@ -1176,6 +1193,11 @@ document.addEventListener("change", (e) => {
       break;
     }
     case "member-field": { const v = el.value.trim(); if (!v) { render(); break; } write("members", id, { [el.dataset.k]: v }, "update"); break; }
+    case "member-role": {
+      const set = new Set(rolesOf(S.members[id])); el.checked ? set.add(el.value) : set.delete(el.value);
+      if (!set.size) { toast("Everyone needs at least one role."); render(); break; }
+      write("members", id, roleFields(Array.from(set)), "update"); break;
+    }
     case "member-board": { const m = S.members[id]; const set = new Set(m.boards || BOARDS); el.checked ? set.add(el.dataset.board) : set.delete(el.dataset.board); write("members", id, { boards: BOARDS.filter((b) => set.has(b)) }, "update"); break; }
   }
 });
@@ -1197,9 +1219,10 @@ document.addEventListener("submit", (e) => {
     zoomSearch(S.modal.id, q);
   } else if (f.dataset.form === "add-member") {
     const name = val("new-member-name").trim(); if (!name) return;
-    const role = val("new-member-role");
-    write("members", uid(), { name, role, boards: role === "Sales" ? ["pre"] : ["PM", "Billing", "Shipping & Receiving", "Programming", "Drafting"].includes(role) ? ["post"] : ["pre", "post"], userId: null });
-    document.getElementById("new-member-name").value = ""; toast("Added " + name);
+    const roles = checkedRoles(f);
+    if (!roles.length) { toast("Pick at least one role."); return; }
+    write("members", uid(), Object.assign({ name, boards: BOARDS.filter((b) => roles.some((r) => ROLES[b].includes(r))), userId: null }, roleFields(roles)));
+    f.reset(); toast("Added " + name);
   }
 });
 

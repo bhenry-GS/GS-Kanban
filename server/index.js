@@ -64,12 +64,24 @@ function seedTemplates(store) {
   console.log("Loaded " + Object.keys(tpls).length + " starter templates");
 }
 
+// Members used to have one `role`; copy it into the `roles` list the page now edits.
+function migrateMemberRoles(store) {
+  let n = 0;
+  for (const [id, m] of Object.entries(store.all().members)) {
+    if (Array.isArray(m.roles)) continue;
+    store.update("members", id, { roles: m.role ? [m.role] : [] });
+    n++;
+  }
+  if (n) console.log("Moved " + n + " member role" + (n === 1 ? "" : "s") + " into role lists");
+}
+
 if (require.main === module) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const store = openStore(path.join(DATA_DIR, "kanban.db"));
   seedTemplates(store);
+  migrateMemberRoles(store);
   createApp(store).listen(PORT, () => console.log("GS Kanban listening on :" + PORT));
   dtools.start(store);
 }
 
-module.exports = { createApp, seedTemplates };
+module.exports = { createApp, seedTemplates, migrateMemberRoles };

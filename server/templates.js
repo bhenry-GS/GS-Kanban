@@ -10,6 +10,11 @@ function addDays(ymd, n) {
   return dt.toISOString().slice(0, 10);
 }
 
+// Members hold a list of roles; records saved before that only have `role`.
+function rolesOf(m) {
+  return Array.isArray(m.roles) && m.roles.length ? m.roles : m.role ? [m.role] : [];
+}
+
 function createTasksFromTemplate(store, projectId, templateId, due) {
   const project = store.get("projects", projectId);
   const tpl = store.get("templates", templateId);
@@ -18,7 +23,7 @@ function createTasksFromTemplate(store, projectId, templateId, due) {
   const keyToId = {};
   (tpl.steps || []).forEach((s) => (keyToId[s.key] = newId()));
   return (tpl.steps || []).map((s, i) => {
-    const inRole = members.filter(([, m]) => m.role === s.role && (m.boards || ["pre", "post"]).includes(project.board));
+    const inRole = members.filter(([, m]) => rolesOf(m).includes(s.role) && (m.boards || ["pre", "post"]).includes(project.board));
     const off = Number(s.offsetDays);
     store.set("tasks", keyToId[s.key], {
       projectId, board: project.board, title: s.title, role: s.role, stage: s.stage, order: i,
@@ -30,4 +35,4 @@ function createTasksFromTemplate(store, projectId, templateId, due) {
   });
 }
 
-module.exports = { createTasksFromTemplate, addDays };
+module.exports = { createTasksFromTemplate, addDays, rolesOf };

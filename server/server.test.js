@@ -4,7 +4,7 @@ const path = require("path");
 const os = require("os");
 const fs = require("fs");
 const { openStore, deepMerge } = require("./store");
-const { createApp, seedTemplates } = require("./index");
+const { createApp, seedTemplates, migrateMemberRoles } = require("./index");
 const { importProjects, normalize, syncOnce } = require("./dtools");
 const { createTasksFromTemplate, addDays } = require("./templates");
 
@@ -114,4 +114,21 @@ test("syncOnce pages through D-Tools with both auth headers", async () => {
     global.fetch = realFetch;
     delete process.env.DTOOLS_API_KEY; delete process.env.DTOOLS_BASIC_AUTH;
   }
+});
+
+test("old single-role members get a role list, and template steps match any of a person's roles", () => {
+  const store = tmpStore();
+  store.set("members", "m1", { name: "Bradley", role: "Engineering", boards: ["pre", "post"] });
+  store.set("members", "m2", { name: "Pat", roles: ["PM"], role: "PM", boards: ["post"] });
+  migrateMemberRoles(store);
+  assert.deepStrictEqual(store.get("members", "m1").roles, ["Engineering"]);
+  assert.deepStrictEqual(store.get("members", "m2").roles, ["PM"]);
+  store.update("members", "m1", { roles: ["Engineering", "Programming", "Commissioning"] });
+  store.set("projects", "p1", { name: "AV", board: "post" });
+  store.set("templates", "t1", { board: "post", name: "T", steps: [
+    { key: "a", title: "Commission", role: "Commissioning", stage: "Ship & Install", offsetDays: 0, dependsOn: [] },
+    { key: "b", title: "Kickoff", role: "PM", stage: "Kickoff", offsetDays: 0, dependsOn: [] },
+  ] });
+  const ids = createTasksFromTemplate(store, "p1", "t1", null);
+  assert.deepStrictEqual(ids.map((id) => store.get("tasks", id).assigneeId), ["m1", "m2"]);
 });

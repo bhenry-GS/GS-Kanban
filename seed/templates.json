@@ -1,0 +1,30 @@
+{
+ "tpl-pre-standard": {"board":"pre","name":"Standard opportunity","steps":[
+  {"key":"s1","title":"Log lead and contact info","role":"Sales","stage":"Lead","offsetDays":30,"dependsOn":[]},
+  {"key":"s2","title":"Discovery call and requirements","role":"Sales","stage":"Qualify","offsetDays":25,"dependsOn":["s1"]},
+  {"key":"s3","title":"Site survey or spec review","role":"Engineering","stage":"Engineering review","offsetDays":20,"dependsOn":["s2"]},
+  {"key":"s4","title":"Preliminary design and BOM","role":"Engineering","stage":"Engineering review","offsetDays":15,"dependsOn":["s3"]},
+  {"key":"s5","title":"Labor and cost estimate","role":"Engineering","stage":"Quote","offsetDays":12,"dependsOn":["s4"]},
+  {"key":"s6","title":"Build quote and proposal","role":"Sales","stage":"Quote","offsetDays":8,"dependsOn":["s5"]},
+  {"key":"s7","title":"Engineering sign-off on proposal","role":"Engineering","stage":"Quote","offsetDays":6,"dependsOn":["s6"]},
+  {"key":"s8","title":"Send proposal to customer","role":"Sales","stage":"Negotiation","offsetDays":5,"dependsOn":["s7"]},
+  {"key":"s9","title":"Follow up and negotiate","role":"Sales","stage":"Negotiation","offsetDays":2,"dependsOn":["s8"]},
+  {"key":"s10","title":"Receive PO or close out","role":"Sales","stage":"Won / Lost","offsetDays":0,"dependsOn":["s9"]}]},
+ "tpl-post-standard": {"board":"post","name":"Standard project delivery","steps":[
+  {"key":"k1","title":"Internal kickoff and sales handoff","role":"PM","stage":"Kickoff","offsetDays":60,"dependsOn":[]},
+  {"key":"k2","title":"Customer kickoff meeting","role":"PM","stage":"Kickoff","offsetDays":56,"dependsOn":["k1"]},
+  {"key":"k3","title":"Send deposit invoice","role":"Billing","stage":"Kickoff","offsetDays":55,"dependsOn":["k1"]},
+  {"key":"k4","title":"Engineering design","role":"Engineering","stage":"Design & Drafting","offsetDays":48,"dependsOn":["k2"]},
+  {"key":"k5","title":"Drawings and submittals","role":"Drafting","stage":"Design & Drafting","offsetDays":42,"dependsOn":["k4"]},
+  {"key":"k6","title":"Customer drawing approval","role":"PM","stage":"Design & Drafting","offsetDays":38,"dependsOn":["k5"]},
+  {"key":"k7","title":"Order long-lead materials","role":"PM","stage":"Procurement & Build","offsetDays":36,"dependsOn":["k6"]},
+  {"key":"k8","title":"Receive and inspect materials","role":"Shipping & Receiving","stage":"Procurement & Build","offsetDays":24,"dependsOn":["k7"]},
+  {"key":"k9","title":"Control system programming","role":"Programming","stage":"Programming","offsetDays":22,"dependsOn":["k6"]},
+  {"key":"k10","title":"Rack build and pre-wire","role":"Engineering","stage":"Procurement & Build","offsetDays":16,"dependsOn":["k8"]},
+  {"key":"k11","title":"Bench test and system checkout","role":"Programming","stage":"Procurement & Build","offsetDays":12,"dependsOn":["k9","k10"]},
+  {"key":"k12","title":"As-built drawings","role":"Drafting","stage":"Ship & Install","offsetDays":8,"dependsOn":["k11"]},
+  {"key":"k13","title":"Pack and ship","role":"Shipping & Receiving","stage":"Ship & Install","offsetDays":7,"dependsOn":["k11"]},
+  {"key":"k14","title":"Install and commissioning","role":"Engineering","stage":"Ship & Install","offsetDays":3,"dependsOn":["k13"]},
+  {"key":"k15","title":"Progress and final invoice","role":"Billing","stage":"Billing & Closeout","offsetDays":1,"dependsOn":["k14"]},
+  {"key":"k16","title":"Closeout package and customer sign-off","role":"PM","stage":"Billing & Closeout","offsetDays":0,"dependsOn":["k12","k14"]}]}
+}

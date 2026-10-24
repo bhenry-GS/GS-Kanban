@@ -1,0 +1,16 @@
+{
+  "name": "gs-kanban",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pre sales and post sales Kanban boards for the GS team",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test server/*.test.js"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "express": "^4.21.0"
+  }
+}

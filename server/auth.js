@@ -227,7 +227,8 @@ function mountAuth(app, store) {
     let memberId = Object.keys(members).find((id) => String(members[id].name || "").trim().toLowerCase() === nm.toLowerCase());
     if (!memberId) {
       memberId = newId();
-      store.set("members", memberId, { name: nm, role: String(role || "PM"), boards: ["pre", "post"], userId: null });
+      const r = String(role || "PM");
+      store.set("members", memberId, { name: nm, role: r, roles: [r], boards: ["pre", "post"], userId: null });
     }
     const a = accounts.create({ email, password, memberId, isAdmin: true });
     signIn(req, res, a);

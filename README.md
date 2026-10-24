@@ -36,6 +36,7 @@ All settings are environment variables. Keep secrets in your host's secret setti
 | --- | --- |
 | `PORT` | Port to listen on (default 3000) |
 | `DATA_DIR` | Folder for the database (default `./data`; `/data` in Docker) |
+| `DOMAIN` | Web address Caddy serves and gets a certificate for (docker-compose only) |
 | `TRUST_PROXY` | Set to `1` when the app runs behind an HTTPS proxy or load balancer (Render, Fly.io, Railway, nginx) so sign-in cookies are marked secure |
 | `DTOOLS_API_KEY` | D-Tools Cloud API key. Sync stays off without it |
 | `DTOOLS_BASIC_AUTH` | The fixed `Authorization` header value from D-Tools Cloud's API docs (starts with `Basic `). Sync stays off without it |
@@ -45,14 +46,9 @@ All settings are environment variables. Keep secrets in your host's secret setti
 
 The `Dockerfile` runs anywhere that keeps a persistent volume mounted at `/data` (Render, Fly.io, Railway, or a server in the office). It needs a host that runs a server: GitHub Pages only serves static files, so it can't run the app or its logins. Serve it over HTTPS so passwords aren't sent in the clear.
 
-### Render
+### AWS
 
-`render.yaml` sets up the app on [Render](https://render.com) with HTTPS, a 1 GB disk for the database, and a redeploy on every change to `main`.
-
-1. Sign in to Render with GitHub and give it access to this repo.
-2. Choose **New > Blueprint**, pick this repo, and click **Apply**. Paste the D-Tools values when asked, or leave them blank to turn sync off.
-3. When the deploy finishes, open the `https://….onrender.com` address and create the first admin account straight away.
-4. Optional: add your own domain under the service's **Settings > Custom Domains**. Render issues the certificate.
+[`deploy/aws.md`](deploy/aws.md) walks through running it on an AWS Lightsail or EC2 server. `docker-compose.yml` runs the app behind Caddy, which gets and renews the HTTPS certificate on its own. Settings go in a `.env` file on the server (see `.env.example`).
 
 ## Layout
 

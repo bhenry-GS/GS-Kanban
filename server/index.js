@@ -5,6 +5,7 @@ const fs = require("fs");
 const express = require("express");
 const { openStore, COLLECTIONS } = require("./store");
 const dtools = require("./dtools");
+const { mountAuth } = require("./auth");
 
 const PORT = Number(process.env.PORT) || 3000;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "..", "data");
@@ -14,16 +15,13 @@ function createApp(store) {
   const app = express();
   app.use(express.json({ limit: "256kb" }));
 
-  // Optional shared login until single sign-on is set up.
-  const user = process.env.BASIC_AUTH_USER, pass = process.env.BASIC_AUTH_PASS;
-  if (user && pass) {
-    app.use((req, res, next) => {
-      const [scheme, encoded] = (req.headers.authorization || "").split(" ");
-      const [u, p] = Buffer.from(encoded || "", "base64").toString().split(":");
-      if (scheme === "Basic" && u === user && p === pass) return next();
-      res.set("WWW-Authenticate", 'Basic realm="GS Kanban"').status(401).send("Sign in required");
-    });
-  }
+  // Behind a proxy that ends HTTPS (Render, Fly.io...), set TRUST_PROXY=1 so sign-in cookies are marked Secure.
+  const tp = process.env.TRUST_PROXY;
+  if (tp) app.set("trust proxy", tp === "true" ? true : /^\d+$/.test(tp) ? Number(tp) : tp);
+
+  app.get("/api/health", (req, res) => res.json({ ok: true, auth: true, dtools: dtools.enabled() }));
+  const { accounts, requireUser, requireAdmin } = mountAuth(app, store);
+  app.use("/api", requireUser);
 
   const checkPath = (req, res, next) => {
     if (!COLLECTIONS.includes(req.params.col) || !ID_RE.test(req.params.id)) return res.status(400).json({ error: "bad path" });
@@ -34,14 +32,24 @@ function createApp(store) {
     next();
   };
 
-  app.get("/api/health", (req, res) => res.json({ ok: true, dtools: dtools.enabled() }));
+  // Each login belongs to a person on the team, so only admins change the team.
+  const teamGuard = (req, res, next) => (req.params.col === "members" ? requireAdmin(req, res, next) : next());
+
   app.get("/api/all", (req, res) => res.json(store.all()));
-  app.put("/api/:col/:id", checkPath, checkBody, (req, res) => res.json(store.set(req.params.col, req.params.id, req.body)));
-  app.patch("/api/:col/:id", checkPath, checkBody, (req, res) => {
+  app.put("/api/:col/:id", checkPath, teamGuard, checkBody, (req, res) => res.json(store.set(req.params.col, req.params.id, req.body)));
+  app.patch("/api/:col/:id", checkPath, teamGuard, checkBody, (req, res) => {
     const out = store.update(req.params.col, req.params.id, req.body);
     out ? res.json(out) : res.status(404).json({ error: "not found" });
   });
-  app.delete("/api/:col/:id", checkPath, (req, res) => { store.delete(req.params.col, req.params.id); res.status(204).end(); });
+  app.delete("/api/:col/:id", checkPath, teamGuard, (req, res) => {
+    if (req.params.col === "members") {
+      const a = accounts.byMember(req.params.id);
+      if (a && a.id === req.account.id) return res.status(400).json({ error: "You can't remove yourself." });
+      accounts.removeForMember(req.params.id);
+    }
+    store.delete(req.params.col, req.params.id);
+    res.status(204).end();
+  });
 
   app.get("/api/stream", (req, res) => {
     res.set({ "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });

@@ -226,6 +226,24 @@ details.deps[open] summary { border-color: var(--accent); color: var(--accent) }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important } }
 </style>
 
+<style>
+/* sign-in screens and logins (hosted server only) */
+.auth-wrap { min-height: 100vh; display: grid; place-items: start center; padding-block: max(48px, 10vh) 48px }
+.auth-card { width: min(400px, 100%); display: grid; gap: 14px; padding: 22px 22px 20px; box-shadow: var(--shadow) }
+.auth-card h1 { font-size: 22px }
+.auth-card p { margin: 0 }
+.auth-card .btn.primary { justify-self: start; padding: 8px 16px }
+.form-error { color: var(--bad); background: var(--bad-soft); border-radius: 6px; padding: 7px 10px; font-size: 13px }
+.mrow.with-login { grid-template-columns: minmax(140px, 1fr) 190px auto 64px 270px 140px }
+.login-cell { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12.5px; color: var(--muted); min-width: 0 }
+.login-cell .email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px }
+.linkbox { display: flex; gap: 8px }
+.linkbox input { flex: 1; min-width: 0; font-family: var(--f-mono); font-size: 12px }
+input[type=email], input[type=password] { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 6px; padding: 5px 8px; min-width: 0 }
+.me-name { color: var(--fg); font-weight: 600; white-space: nowrap }
+@media (max-width: 760px) { .mrow.with-login { grid-template-columns: 1fr 1fr } }
+</style>
+
 <style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)} body{margin:0} [hidden]{display:none!important}</style>
 </head>
 <body>
@@ -261,6 +279,7 @@ const S = {
   loaded: {}, mode: "connecting",
   view: "pre", me: null, personView: null, showDone: false,
   modal: null, tplEdit: null, alertBoard: "all", zoom: null, host: null,
+  account: null, auth: null, accounts: null,
 };
 let db = null, userApi = null, myUserId = null;
 
@@ -314,7 +333,10 @@ function restDb() {
   const fire = (c) => (listeners[c] || []).forEach((fn) => fn({ docs: Object.entries(docs[c] || {}).map(([id, d]) => ({ id, data: () => d })) }));
   const send = (method, c, id, body) => fetch("api/" + c + "/" + encodeURIComponent(id), {
     method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined,
-  }).then((r) => { if (!r.ok) throw { code: r.status === 404 || r.status === 400 ? "invalid_argument" : "unavailable" }; });
+  }).then((r) => {
+    if (r.status === 401) { location.reload(); throw { code: "unauthenticated" }; }
+    if (!r.ok) throw { code: r.status === 404 || r.status === 400 || r.status === 403 ? "invalid_argument" : "unavailable" };
+  });
   const load = () => fetch("api/all").then((r) => r.json()).then((all) => { docs = all; Object.keys(listeners).forEach(fire); });
   const es = new EventSource("api/stream");
   es.onmessage = (m) => {
@@ -325,6 +347,7 @@ function restDb() {
     fire(ev.col);
   };
   es.onopen = () => load();   // reload on every (re)connect so nothing missed while offline is lost
+  es.onerror = () => api("GET", "api/auth/me").then((r) => { if (r.status === 401) location.reload(); });
   return {
     collection: (c) => ({
       onSnapshot(next) { (listeners[c] = listeners[c] || []).push(next); if (docs) fire(c); return () => {}; },
@@ -354,10 +377,42 @@ function write(col, id, data, kind) {
   return queues[path];
 }
 
+/* ---------- sign in (hosted server only) ---------- */
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  let data = null; try { data = await r.json(); } catch (e) {}
+  return { status: r.status, ok: r.ok, body: data || {} };
+}
+const inviteToken = () => { const m = /^#invite=([A-Za-z0-9_-]+)$/.exec(location.hash || ""); return m ? m[1] : null; };
+
+// Shows the sign-in, first admin or invite screen until there's a session.
+async function signedIn() {
+  const token = inviteToken();
+  if (token) {
+    const r = await api("GET", "api/auth/invite/" + token);
+    S.auth = r.ok ? { screen: "invite", token, invite: r.body } : { screen: "login", error: r.body.error };
+    history.replaceState(null, "", location.pathname + location.search);
+    if (r.ok) { render(); return false; }
+  }
+  const r = await api("GET", "api/auth/me");
+  if (r.ok) { S.account = r.body.account; S.auth = null; return true; }
+  S.auth = Object.assign({ screen: r.body.needsSetup ? "setup" : "login" }, S.auth && S.auth.error ? { error: S.auth.error } : {});
+  render();
+  return false;
+}
+async function finishSignIn(account) {
+  S.account = account; S.auth = null; LS.set("me", null);
+  db = restDb(); subscribeAll(); render();
+}
+
 async function connect() {
   try {
     const h = await fetch("api/health").then((r) => (r.ok ? r.json() : null));
-    if (h && h.ok) { S.host = "server"; db = restDb(); return subscribeAll(); }
+    if (h && h.ok) {
+      S.host = "server";
+      if (h.auth && !(await signedIn())) return;
+      db = restDb(); return subscribeAll();
+    }
   } catch (e) {}
   S.host = "claude";
   let tries = 0;
@@ -383,6 +438,7 @@ function subscribeAll() {
 }
 
 function pickMe() {
+  if (S.account) { S.me = S.members[S.account.memberId] ? S.account.memberId : null; return; }
   const saved = LS.get("me");
   if (saved && S.members[saved]) { S.me = saved; return; }
   if (myUserId) {
@@ -439,7 +495,7 @@ function typing() {
   const a = document.activeElement;
   if (!a || !document.getElementById("app").parentNode.contains(a)) return false;
   if (a.tagName === "TEXTAREA") return true;
-  return a.tagName === "INPUT" && /^(text|number|search)$/.test(a.type);
+  return a.tagName === "INPUT" && /^(text|number|search|email|password)$/.test(a.type);
 }
 document.addEventListener("focusout", () => { if (deferred) setTimeout(() => { if (!typing()) { deferred = false; render(); } }, 0); });
 
@@ -448,6 +504,7 @@ function render() {
   const keep = {};
   document.querySelectorAll("[data-keep-scroll]").forEach((el) => (keep[el.dataset.keepScroll] = [el.scrollLeft, el.scrollTop]));
   const openDetails = Array.from(document.querySelectorAll("details[data-key][open]")).map((d) => d.dataset.key);
+  if (S.auth) { document.getElementById("app").innerHTML = renderAuth(); document.getElementById("modal-root").innerHTML = ""; return; }
   const alerts = computeAlerts();
   document.getElementById("app").innerHTML = renderTop(alerts) + '<main class="wrap">' + renderBanner() + renderView(alerts) + "</main>";
   document.getElementById("modal-root").innerHTML = renderModal();
@@ -469,7 +526,9 @@ function renderTop(alerts) {
       tab("alerts", "Alerts", ' <span class="count' + (bad ? "" : " zero") + '">' + alerts.length + "</span>") +
       tab("templates", "Templates") + tab("team", "Team") +
     "</nav>" +
-    '<div class="who"><label for="me-select">Viewing as</label><select id="me-select" data-action="set-me">' + meOpts + "</select>" + conn + "</div>" +
+    (S.account
+      ? '<div class="who"><span class="me-name">' + esc(memberName(S.account.memberId) === "Unassigned" ? S.account.email : memberName(S.account.memberId)) + "</span>" + (S.account.isAdmin ? '<span class="tag">Admin</span>' : "") + '<button class="btn small ghost" data-action="account">Account</button>' + conn + "</div>"
+      : '<div class="who"><label for="me-select">Viewing as</label><select id="me-select" data-action="set-me">' + meOpts + "</select>" + conn + "</div>") +
   "</div></header>";
 }
 
@@ -643,23 +702,96 @@ function renderTplEditor() {
 }
 
 /* team */
+const canEditTeam = () => !S.account || S.account.isAdmin;
 function renderTeam() {
   const ms = sortedMembers();
-  const head = '<div class="view-head"><h1>Team</h1><span class="sub">People who can be assigned tasks, and which boards they work on</span></div>';
+  const edit = canEditTeam(), logins = !!(S.account && S.account.isAdmin);
+  if (logins && !S.accounts) loadAccounts();
+  const dis = edit ? "" : " disabled";
+  const head = '<div class="view-head"><h1>Team</h1><span class="sub">' + (edit ? "People who can be assigned tasks, and which boards they work on" : "People who can be assigned tasks. Ask an admin to change the team.") + "</span></div>";
   const rows = ms.map((m) => {
     const bs = m.boards || BOARDS;
     const open = Object.values(S.tasks).filter((t) => t.assigneeId === m.id && t.status !== "done").length;
-    return '<div class="mrow"><div style="display:flex;gap:8px;align-items:center;min-width:0">' + avatar(m.id) + '<input type="text" aria-label="Name" style="flex:1;min-width:0" data-action="member-field" data-k="name" data-id="' + esc(m.id) + '" value="' + esc(m.name) + '"></div>' +
-      '<select aria-label="Role" data-action="member-field" data-k="role" data-id="' + esc(m.id) + '">' + ALL_ROLES.map((r) => "<option" + (r === m.role ? " selected" : "") + ">" + esc(r) + "</option>").join("") + "</select>" +
-      '<span class="checks">' + BOARDS.map((b) => '<label><input type="checkbox" data-action="member-board" data-id="' + esc(m.id) + '" data-board="' + b + '"' + (bs.includes(b) ? " checked" : "") + "> " + BOARD_NAME[b] + "</label>").join("") + "</span>" +
+    const me = m.id === S.me ? '<span class="tag">You</span>' : S.account ? "" : '<button class="btn small" data-action="this-is-me" data-id="' + esc(m.id) + '">This is me</button>';
+    return '<div class="mrow' + (logins ? " with-login" : "") + '"><div style="display:flex;gap:8px;align-items:center;min-width:0">' + avatar(m.id) + '<input type="text" aria-label="Name" style="flex:1;min-width:0" data-action="member-field" data-k="name" data-id="' + esc(m.id) + '" value="' + esc(m.name) + '"' + dis + "></div>" +
+      '<select aria-label="Role" data-action="member-field" data-k="role" data-id="' + esc(m.id) + '"' + dis + ">" + ALL_ROLES.map((r) => "<option" + (r === m.role ? " selected" : "") + ">" + esc(r) + "</option>").join("") + "</select>" +
+      '<span class="checks">' + BOARDS.map((b) => '<label><input type="checkbox" data-action="member-board" data-id="' + esc(m.id) + '" data-board="' + b + '"' + (bs.includes(b) ? " checked" : "") + dis + "> " + BOARD_NAME[b] + "</label>").join("") + "</span>" +
       '<span class="hint">' + open + " open</span>" +
-      '<span style="display:flex;gap:6px">' + (m.id === S.me ? '<span class="tag">You</span>' : '<button class="btn small" data-action="this-is-me" data-id="' + esc(m.id) + '">This is me</button>') + '<button class="btn small danger" data-action="del-member" data-id="' + esc(m.id) + '">Remove</button></span></div>';
+      (logins ? loginCell(m) : "") +
+      '<span style="display:flex;gap:6px">' + me + (edit && m.id !== S.me ? '<button class="btn small danger" data-action="del-member" data-id="' + esc(m.id) + '">Remove</button>' : "") + "</span></div>";
   }).join("");
   return head + '<div class="panel"><div class="panel-head"><h2>People</h2><span class="hint">' + ms.length + "</span></div>" +
-    (rows || '<div class="empty"><strong>No one on the team yet</strong>Add people below, then pick yourself in "Viewing as".</div>') +
-    '<form class="addrow" data-form="add-member"><input type="text" id="new-member-name" placeholder="Full name" required>' +
+    (rows || '<div class="empty"><strong>No one on the team yet</strong>Add people below' + (S.account ? ", then invite them to sign in." : ', then pick yourself in "Viewing as".') + "</div>") +
+    (edit ? '<form class="addrow" data-form="add-member"><input type="text" id="new-member-name" placeholder="Full name" required>' +
       '<select id="new-member-role" aria-label="Role">' + ALL_ROLES.map((r) => "<option>" + esc(r) + "</option>").join("") + "</select>" +
-      '<button class="btn primary small" type="submit">Add person</button></form></div>';
+      '<button class="btn primary small" type="submit">Add person</button></form>' : "") + "</div>";
+}
+function loginOf(memberId) {
+  const A = S.accounts || { accounts: [], invites: [] };
+  return { account: A.accounts.find((a) => a.memberId === memberId) || null, invite: A.invites.find((i) => i.memberId === memberId) || null };
+}
+function loginCell(m) {
+  if (!S.accounts) return '<span class="login-cell">…</span>';
+  const { account, invite } = loginOf(m.id);
+  const btn = (label) => '<button class="btn small" data-action="login-open" data-id="' + esc(m.id) + '">' + label + "</button>";
+  if (account) return '<span class="login-cell"><span class="email" title="' + esc(account.email) + '">' + esc(account.email) + "</span>" + (account.isAdmin ? '<span class="tag">Admin</span>' : "") + btn("Login") + "</span>";
+  if (invite) return '<span class="login-cell">Invited' + btn("Login") + "</span>";
+  return '<span class="login-cell">No login' + btn("Invite") + "</span>";
+}
+async function loadAccounts() {
+  if (loadAccounts.busy) return; loadAccounts.busy = true;
+  const r = await api("GET", "api/accounts");
+  loadAccounts.busy = false;
+  S.accounts = r.ok ? r.body : { accounts: [], invites: [] };
+  schedule();
+}
+
+/* sign-in screens */
+function renderAuth() {
+  const a = S.auth;
+  const err = a.error ? '<div class="form-error" role="alert">' + esc(a.error) + "</div>" : "";
+  const brand = '<div class="brand">Kanban <small>GS edition</small></div>';
+  const pw = (id, label, auto) => '<label class="field">' + label + '<input type="password" id="' + id + '" autocomplete="' + auto + '" minlength="8" required></label>';
+  const submit = (label) => '<button class="btn primary" type="submit"' + (a.busy ? " disabled" : "") + ">" + (a.busy ? "One moment…" : label) + "</button>";
+  let body;
+  if (a.screen === "setup") {
+    body = '<form class="panel auth-card" data-form="auth-setup">' + brand + "<h1>Set up your board</h1>" +
+      '<p class="hint">No one has signed in yet. Create the first admin account. Admins add the team and send everyone else an invite link.</p>' + err +
+      '<label class="field">Your name<input type="text" id="au-name" autocomplete="name" required></label>' +
+      '<label class="field">Your role<select id="au-role">' + ALL_ROLES.map((r) => "<option" + (r === "PM" ? " selected" : "") + ">" + esc(r) + "</option>").join("") + "</select></label>" +
+      '<label class="field">Email<input type="email" id="au-email" autocomplete="username" required></label>' +
+      pw("au-pass", "Password (at least 8 characters)", "new-password") + submit("Create admin account") + "</form>";
+  } else if (a.screen === "invite") {
+    const inv = a.invite;
+    body = '<form class="panel auth-card" data-form="auth-invite">' + brand + "<h1>" + (inv.reset ? "Choose a new password" : "Welcome, " + esc(inv.name)) + "</h1>" +
+      '<p class="hint">' + (inv.reset ? "Set a new password for " : "Choose a password to finish your login. You'll sign in with ") + esc(inv.email) + ".</p>" + err +
+      '<input type="email" value="' + esc(inv.email) + '" autocomplete="username" hidden>' +
+      pw("au-pass", "Password (at least 8 characters)", "new-password") + pw("au-pass2", "Type it again", "new-password") + submit(inv.reset ? "Save password" : "Create my login") + "</form>";
+  } else {
+    body = '<form class="panel auth-card" data-form="auth-login">' + brand + "<h1>Sign in</h1>" + err +
+      '<label class="field">Email<input type="email" id="au-email" autocomplete="username" required></label>' +
+      pw("au-pass", "Password", "current-password") + submit("Sign in") +
+      '<p class="hint">No login yet, or forgot your password? Ask an admin on your team for a link.</p></form>';
+  }
+  return '<main class="wrap auth-wrap">' + body + "</main>";
+}
+async function authSubmit(kind) {
+  const a = S.auth; if (a.busy) return;
+  const f = {};   // read the form before re-rendering replaces it
+  ["name", "role", "email", "pass", "pass2"].forEach((k) => { const n = document.getElementById("au-" + k); f[k] = n ? n.value : ""; });
+  let r;
+  if (kind === "auth-invite" && f.pass !== f.pass2) { a.error = "The two passwords don't match."; render(); return; }
+  a.busy = true; a.error = null; render();
+  if (kind === "auth-login") r = await api("POST", "api/auth/login", { email: f.email, password: f.pass });
+  else if (kind === "auth-setup") r = await api("POST", "api/auth/setup", { name: f.name, role: f.role, email: f.email, password: f.pass });
+  else r = await api("POST", "api/auth/invite/" + a.token, { password: f.pass });
+  a.busy = false;
+  if (r.ok) return finishSignIn(r.body.account);
+  a.error = r.body.error || "Something went wrong. Try again.";
+  if (kind === "auth-setup" && r.status === 409) a.screen = "login";
+  const keep = { email: f.email, name: f.name, role: f.role };
+  render();
+  ["email", "name", "role"].forEach((k) => { const n = document.getElementById("au-" + k); if (n && keep[k]) n.value = keep[k]; });
 }
 
 /* modals */
@@ -668,7 +800,54 @@ function renderModal() {
   if (!m) return "";
   if (m.type === "new-project") return renderNewProject(m.board);
   if (m.type === "project") { const p = S.projects[m.id]; return p ? renderProject(p) : ""; }
+  if (m.type === "account") return renderAccountModal(m);
+  if (m.type === "login") { const mem = S.members[m.id]; return mem ? renderLoginModal(mem, m) : ""; }
   return "";
+}
+
+function modalShell(form, eyebrow, title, inner, actions) {
+  return '<div class="overlay" data-action="close-modal-bg"><' + (form ? 'form data-form="' + form + '"' : "div") + ' class="modal narrow" role="dialog" aria-label="' + esc(title) + '">' +
+    '<div class="modal-head"><div class="grow"><span class="eyebrow">' + esc(eyebrow) + "</span><h2>" + esc(title) + '</h2></div><button type="button" class="btn ghost" data-action="close-modal">Close</button></div>' +
+    '<div class="form-grid">' + inner + "</div>" + (actions ? '<div class="form-actions">' + actions + "</div>" : "") + (form ? "</form>" : "</div>") + "</div>";
+}
+const modalError = (m) => (m.error ? '<div class="form-error" role="alert">' + esc(m.error) + "</div>" : "");
+const linkBox = (link, note) => '<label class="field">' + esc(note) + '<span class="linkbox"><input type="text" id="invite-link" readonly value="' + esc(link) + '"><button type="button" class="btn small" data-action="copy-link">Copy</button></span></label>' +
+  '<p class="hint" style="margin:0">Send it to them in Zoom chat or email. It works once and expires in 7 days.</p>';
+
+function renderAccountModal(m) {
+  const a = S.account;
+  return modalShell("change-password", "Account", memberName(a.memberId) === "Unassigned" ? a.email : memberName(a.memberId),
+    '<p class="hint" style="margin:0">Signed in as ' + esc(a.email) + (a.isAdmin ? " · Admin" : "") + "</p>" + modalError(m) +
+    '<input type="email" value="' + esc(a.email) + '" autocomplete="username" hidden>' +
+    '<label class="field">Current password<input type="password" id="pw-cur" autocomplete="current-password" required></label>' +
+    '<label class="field">New password (at least 8 characters)<input type="password" id="pw-new" autocomplete="new-password" minlength="8" required></label>',
+    '<button type="button" class="btn" data-action="sign-out" style="margin-right:auto">Sign out</button><button class="btn primary" type="submit">Change password</button>');
+}
+
+function renderLoginModal(mem, m) {
+  const { account, invite } = loginOf(mem.id);
+  const self = account && account.id === S.account.id;
+  if (account) {
+    return modalShell(null, "Login", mem.name,
+      '<p style="margin:0">Signs in with <strong>' + esc(account.email) + "</strong>" + (account.lastLogin ? '<br><span class="hint">Last signed in ' + esc(new Date(account.lastLogin).toLocaleString()) + "</span>" : "") + "</p>" + modalError(m) +
+      '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-action="login-admin" data-id="' + esc(account.id) + '"' + (account.isAdmin ? " checked" : "") + "> Admin (can change the team and manage logins)</label>" +
+      (m.link ? linkBox(m.link, "Password reset link") : '<p class="hint" style="margin:0">Forgot their password? Make a reset link and send it to them.</p>'),
+      (self ? "" : '<button type="button" class="btn danger" data-action="login-remove" data-id="' + esc(account.id) + '" style="margin-right:auto">Remove login</button>') +
+      '<button type="button" class="btn" data-action="login-reset" data-id="' + esc(mem.id) + '">' + (m.link ? "Make a new link" : "Make reset link") + "</button>");
+  }
+  if (m.link) return modalShell(null, "Invite", mem.name, linkBox(m.link, "Invite link for " + (invite ? invite.email : "")), '<button type="button" class="btn primary" data-action="close-modal">Done</button>');
+  return modalShell("invite", "Invite", mem.name,
+    (invite ? '<p class="hint" style="margin:0">An invite for ' + esc(invite.email) + " is open until " + esc(new Date(invite.expiresAt).toLocaleDateString()) + ". Making a new link cancels it.</p>" : '<p class="hint" style="margin:0">Make a link ' + esc(mem.name) + " can open to choose a password.</p>") + modalError(m) +
+    '<label class="field">Email they sign in with<input type="email" id="inv-email" required value="' + esc(invite ? invite.email : "") + '"></label>' +
+    '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="inv-admin"' + (invite && invite.isAdmin ? " checked" : "") + "> Admin (can change the team and manage logins)</label>",
+    '<button class="btn primary" type="submit">Make invite link</button>');
+}
+const inviteLink = (token) => location.origin + location.pathname + "#invite=" + token;
+async function loginAction(r, ok) {
+  if (!r.ok) { if (S.modal) S.modal.error = r.body.error || "That didn't work. Try again."; render(); return; }
+  if (ok) ok(r.body);
+  if (S.modal) S.modal.error = null;
+  await loadAccounts(); render();
 }
 
 function renderNewProject(b) {
@@ -865,6 +1044,7 @@ function armed(btn) {
 
 function setView(v) {
   S.view = v; S.modal = null;
+  if (v === "team") S.accounts = null;   // refetch logins so accepted invites show up
   if (v === "mine") S.personView = null;
   LS.set("view", v); render(); window.scrollTo(0, 0);
 }
@@ -908,6 +1088,16 @@ document.addEventListener("click", (e) => {
     case "new-project": S.modal = { type: "new-project", board: el.dataset.board }; render(); setTimeout(() => { const n = document.getElementById("np-name"); n && n.focus(); }, 0); break;
     case "open-project": S.modal = { type: "project", id }; render(); break;
     case "close-modal": S.modal = null; S.zoom = null; render(); break;
+    case "account": S.modal = { type: "account" }; render(); break;
+    case "sign-out": api("POST", "api/auth/logout").then(() => location.reload()); break;
+    case "login-open": S.modal = { type: "login", id }; render(); setTimeout(() => { const n = document.getElementById("inv-email"); n && n.focus(); }, 0); break;
+    case "login-reset": api("POST", "api/accounts/invite", { memberId: id }).then((r) => loginAction(r, (b) => (S.modal.link = inviteLink(b.token)))); break;
+    case "login-remove": if (armed(el)) api("DELETE", "api/accounts/" + encodeURIComponent(id)).then((r) => loginAction(r, () => toast("Login removed"))); break;
+    case "copy-link": {
+      const n = document.getElementById("invite-link"); n.select();
+      (navigator.clipboard ? navigator.clipboard.writeText(n.value) : Promise.reject()).then(() => toast("Link copied"), () => { try { document.execCommand("copy"); toast("Link copied"); } catch (x) { toast("Select the link and copy it."); } });
+      break;
+    }
     case "zoom-open": { const p = S.projects[S.modal.id]; S.zoom = { pid: p.id, query: p.number || p.client || p.name, status: "idle", messages: [], suggestions: [] }; render(); setTimeout(() => { const q = document.getElementById("zoom-q"); q && q.focus(); }, 0); break; }
     case "zoom-close": S.zoom = null; render(); break;
     case "zoom-add": {
@@ -974,6 +1164,7 @@ document.addEventListener("change", (e) => {
   switch (a) {
     case "set-me": S.me = el.value || null; LS.set("me", S.me); if (S.me && myUserId && !S.members[S.me].userId) write("members", S.me, { userId: myUserId }, "update"); render(); break;
     case "person-view": S.personView = el.value || null; render(); break;
+    case "login-admin": api("PATCH", "api/accounts/" + encodeURIComponent(id), { isAdmin: el.checked }).then((r) => loginAction(r)); break;
     case "toggle-done": S.showDone = el.checked; render(); break;
     case "alert-board": S.alertBoard = el.value; render(); break;
     case "zs-field": { const g = S.zoom && S.zoom.suggestions[+el.dataset.i]; if (!g) break; g[el.dataset.k] = el.dataset.k === "pick" ? el.checked : el.value; render(); break; }
@@ -1011,6 +1202,19 @@ document.addEventListener("change", (e) => {
 document.addEventListener("submit", (e) => {
   const f = e.target; e.preventDefault();
   const val = (id) => (document.getElementById(id) || {}).value || "";
+  if (/^auth-/.test(f.dataset.form)) { authSubmit(f.dataset.form); return; }
+  if (f.dataset.form === "invite") {
+    const mid = S.modal.id;
+    api("POST", "api/accounts/invite", { memberId: mid, email: val("inv-email"), isAdmin: document.getElementById("inv-admin").checked }).then((r) => loginAction(r, (b) => (S.modal.link = inviteLink(b.token))));
+    return;
+  }
+  if (f.dataset.form === "change-password") {
+    api("POST", "api/auth/password", { current: val("pw-cur"), password: val("pw-new") }).then((r) => {
+      if (!r.ok) { S.modal.error = r.body.error || "That didn't work. Try again."; render(); return; }
+      S.modal = null; toast("Password changed. Other devices were signed out."); render();
+    });
+    return;
+  }
   if (f.dataset.form === "new-project") {
     const b = f.dataset.board;
     const pid = createProject(b, { name: val("np-name").trim(), client: val("np-client").trim(), number: val("np-number").trim(), due: val("np-due") || null, column: val("np-col"), tpl: val("np-tpl") });
@@ -1044,7 +1248,7 @@ document.addEventListener("drop", (e) => {
 });
 
 /* ---------- boot ---------- */
-const hashView = (location.hash || "").slice(1);
+const hashView = inviteToken() ? "" : (location.hash || "").slice(1);
 S.view = ["pre", "post", "mine", "alerts", "templates", "team"].includes(hashView) ? hashView : (LS.get("view") || "pre");
 render();
 connect();

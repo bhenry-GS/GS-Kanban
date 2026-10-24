@@ -199,6 +199,21 @@ details.deps[open] summary { border-color: var(--accent); color: var(--accent) }
 .colchip button { border: 0; background: none; cursor: pointer; color: var(--muted); padding: 2px 5px; border-radius: 4px }
 .colchip button:hover { background: var(--surface-2); color: var(--fg) }
 
+/* automations */
+.rule .switch { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; font-weight: 800; color: var(--muted); cursor: pointer; min-width: 52px }
+.rule .switch input:checked + span { color: var(--good) }
+.rule.off .title { color: var(--muted) }
+.rule-acts { list-style: none; margin: 2px 0 0; padding: 0; display: grid; gap: 2px; font-size: 12.5px; color: var(--muted) }
+.rule-acts b { color: var(--fg); font-weight: 700 }
+.rule-when { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--line) }
+.rule-when input[type=text] { flex: 1 1 200px }
+.arow { display: grid; grid-template-columns: minmax(160px, 1fr) 150px 190px 260px 160px auto; gap: 8px; align-items: center; padding: 7px 16px; border-top: 1px solid var(--line) }
+.arow input[type=text], .arow select { width: 100% }
+.arow .due-cell { display: flex; gap: 4px; align-items: center }
+.arow .due-cell input { width: 60px; flex: none }
+.arow .due-cell select { flex: 1 1 auto; width: auto }
+.arow-head { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; border-top: 0 }
+
 .mrow { display: grid; grid-template-columns: minmax(140px, 1fr) 190px auto auto auto; gap: 10px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--line) }
 .checks { display: flex; gap: 10px; font-size: 12.5px }
 .checks label { display: flex; gap: 4px; align-items: center }
@@ -217,6 +232,9 @@ details.deps[open] summary { border-color: var(--accent); color: var(--accent) }
   .srow > .title-cell { grid-column: 2 / -1 }
   .srow-head { display: none }
   .mrow { grid-template-columns: 1fr 1fr }
+  .arow { grid-template-columns: 1fr 1fr }
+  .arow > .title-cell, .arow > .due-cell { grid-column: 1 / -1 }
+  .arow-head { display: none }
   .row { grid-template-columns: auto minmax(0, 1fr) }
   .row .side { grid-column: 2; justify-content: flex-start }
   .row > .status-btn { align-self: start }
@@ -253,14 +271,14 @@ const SOON_DAYS = 3;      // a task due within this many days counts as "due soo
 const WEEK_DAYS = 7;
 const STATUS_NEXT = { todo: "doing", doing: "done", done: "todo" };
 const STATUS_LABEL = { todo: "To do", doing: "In progress", done: "Done" };
-const COLLECTIONS = ["members", "projects", "tasks", "templates", "config"];
+const COLLECTIONS = ["members", "projects", "tasks", "templates", "config", "automations"];
 
 /* ---------- state ---------- */
 const S = {
-  members: {}, projects: {}, tasks: {}, templates: {}, config: {},
+  members: {}, projects: {}, tasks: {}, templates: {}, config: {}, automations: {},
   loaded: {}, mode: "connecting",
   view: "pre", me: null, personView: null, showDone: false,
-  modal: null, tplEdit: null, alertBoard: "all", zoom: null, host: null,
+  modal: null, tplEdit: null, autoEdit: null, alertBoard: "all", zoom: null, host: null,
 };
 let db = null, userApi = null, myUserId = null;
 
@@ -467,7 +485,7 @@ function renderTop(alerts) {
       tab("pre", "Pre sales") + tab("post", "Post sales") +
       tab("mine", "My tasks", mine ? ' <span class="count zero">' + mine + "</span>" : "") +
       tab("alerts", "Alerts", ' <span class="count' + (bad ? "" : " zero") + '">' + alerts.length + "</span>") +
-      tab("templates", "Templates") + tab("team", "Team") +
+      tab("templates", "Templates") + tab("automations", "Automations") + tab("team", "Team") +
     "</nav>" +
     '<div class="who"><label for="me-select">Viewing as</label><select id="me-select" data-action="set-me">' + meOpts + "</select>" + conn + "</div>" +
   "</div></header>";
@@ -486,6 +504,7 @@ function renderView(alerts) {
     case "mine": return renderMine();
     case "alerts": return renderAlerts(alerts);
     case "templates": return renderTemplates();
+    case "automations": return renderAutomations();
     case "team": return renderTeam();
   }
   return "";
@@ -541,7 +560,7 @@ function taskRow(t, opts) {
   return '<li class="row">' +
     '<button class="status-btn ' + st + '" data-action="cycle-status" data-id="' + esc(t.id) + '" title="Change status"><i class="glyph ' + (st === "todo" && deps.length ? "blocked" : st) + '"></i>' + STATUS_LABEL[st] + "</button>" +
     '<div class="main"><div class="title' + (st === "done" ? " done" : "") + '">' + esc(t.title) + "</div>" +
-      '<div class="meta">' + (p ? '<button class="link" data-action="open-project" data-id="' + esc(p.id) + '">' + esc(p.name) + "</button>" + boardTag(p.board) : "") + (t.role ? '<span class="tag">' + esc(t.role) + "</span>" : "") +
+      '<div class="meta">' + (p ? '<button class="link" data-action="open-project" data-id="' + esc(p.id) + '">' + esc(p.name) + "</button>" + boardTag(p.board) : "") + (t.role ? '<span class="tag">' + esc(t.role) + "</span>" : "") + (t.source === "automation" ? '<span class="tag" title="' + esc(t.sourceNote || "Added by an automation") + '">Auto</span>' : "") +
       (opts.showAssignee ? "<span>" + esc(memberName(t.assigneeId)) + "</span>" : "") +
       (deps.length && st !== "done" ? '<span style="color:var(--bad)">Waiting on ' + deps.map((d) => esc(d.title) + " (" + esc(memberName(d.assigneeId)) + ")").join(", ") + "</span>" : "") + "</div></div>" +
     '<div class="side">' + dueChip(t.due, st === "done") + (opts.claim ? '<button class="btn small" data-action="claim" data-id="' + esc(t.id) + '">Take it</button>' : "") + "</div>" +
@@ -640,6 +659,67 @@ function renderTplEditor() {
       '<div class="srow srow-head"><span>#</span><span>Step</span><span>Role</span><span>Stage</span><span>Lead time</span><span>Prerequisites</span><span></span></div>' +
       rows +
       '<div class="addrow"><button class="btn small" data-action="step-add">Add step</button><span class="hint">Lead time is how many days before the project due date the step should be finished.</span></div></div>';
+}
+
+/* automations */
+function renderAutomations() {
+  const head = '<div class="view-head"><h1>Automations</h1><span class="sub">Add tasks on their own when a project moves to a column or a task is finished. Rules only add tasks; they never change or remove anything.</span></div>';
+  let html = head;
+  for (const b of BOARDS) {
+    const rules = Object.values(S.automations).filter((r) => r.board === b).sort((x, y) => (x.createdAt || "").localeCompare(y.createdAt || ""));
+    html += '<div class="panel"><div class="panel-head"><h2>' + BOARD_NAME[b] + '</h2><span class="hint">' + rules.length + " rule" + (rules.length === 1 ? "" : "s") + '</span><span class="spacer"></span><button class="btn small" data-action="new-rule" data-board="' + b + '">New rule</button></div>' +
+      (rules.length ? '<ul class="rows">' + rules.map(ruleRow).join("") + "</ul>"
+        : '<div class="empty">No rules for this board yet. For example: when a project moves into ' + esc(columnsFor(b)[1] || columnsFor(b)[0]) + ", add a task for the least busy " + esc(ROLES[b][ROLES[b].length > 1 ? 1 : 0]) + " person, due in 2 days.</div>") +
+      (S.autoEdit && S.autoEdit.draft.board === b ? renderRuleEditor() : "") + "</div>";
+  }
+  return html;
+}
+
+function ruleRow(r) {
+  const on = r.enabled !== false;
+  const tr = r.trigger || {};
+  const stale = tr.type === "column" && !columnsFor(r.board).includes(tr.column);
+  return '<li class="row rule' + (on ? "" : " off") + '">' +
+    '<label class="switch" title="Turn this rule on or off"><input type="checkbox" data-action="rule-toggle" data-id="' + esc(r.id) + '"' + (on ? " checked" : "") + "><span>" + (on ? "On" : "Off") + "</span></label>" +
+    '<div class="main"><div class="title">' + esc(ruleSummary(r)) + "</div>" +
+      '<ul class="rule-acts">' + (r.actions || []).map((a) => "<li>Add <b>" + esc(a.title) + "</b> for " + esc(assignLabel(a)) + ", " + esc(dueLabel(a)) + "</li>").join("") + "</ul>" +
+      (stale ? '<div class="deps-note bad" style="margin:0">The ' + esc(tr.column) + " column no longer exists, so this rule won't run.</div>" : "") + "</div>" +
+    '<div class="side"><button class="btn small" data-action="edit-rule" data-id="' + esc(r.id) + '">Edit</button></div></li>';
+}
+
+function renderRuleEditor() {
+  const d = S.autoEdit.draft, b = d.board, tr = d.trigger;
+  const cols = columnsFor(b), roles = ROLES[b];
+  const members = sortedMembers().filter((m) => (m.boards || BOARDS).includes(b));
+  const opt = (v, label, cur) => '<option value="' + esc(v) + '"' + (v === cur ? " selected" : "") + ">" + esc(label) + "</option>";
+  const when = '<div class="rule-when"><span class="eyebrow">When</span>' +
+    '<select aria-label="Trigger" data-action="rule-trig" data-k="type">' + opt("column", "a project moves into", tr.type) + opt("task", "a task is completed", tr.type) + "</select>" +
+    (tr.type === "column"
+      ? '<select aria-label="Column" data-action="rule-trig" data-k="column">' + cols.concat(cols.includes(tr.column) || !tr.column ? [] : [tr.column]).map((c) => opt(c, c, tr.column)).join("") + "</select>"
+      : '<input type="text" aria-label="Task name contains" placeholder="Task name contains, e.g. Site survey" data-action="rule-trig" data-k="match" value="' + esc(tr.match || "") + '">' +
+        '<select aria-label="Task role" data-action="rule-trig" data-k="role">' + opt("", "Any role", tr.role || "") + roles.map((r) => opt(r, r, tr.role)).join("") + "</select>") +
+    "</div>";
+  const rows = d.actions.map((a, i) => {
+    const assign = '<select aria-label="Assign to" data-action="rule-act" data-k="assign" data-i="' + i + '">' + opt(ASSIGN_ROLE, "Least busy " + a.role, a.assign) + opt("", "Unassigned", a.assign) +
+      '<optgroup label="Person">' + members.map((m) => opt(m.id, m.name + (m.role !== a.role ? " · " + m.role : ""), a.assign)).join("") +
+      (a.assign && a.assign !== ASSIGN_ROLE && !members.find((m) => m.id === a.assign) ? opt(a.assign, memberName(a.assign), a.assign) : "") + "</optgroup></select>";
+    return '<div class="arow">' +
+      '<div class="title-cell"><input type="text" aria-label="Task to add" placeholder="Task to add" data-action="rule-act" data-k="title" data-i="' + i + '" value="' + esc(a.title) + '"></div>' +
+      '<select aria-label="Role" data-action="rule-act" data-k="role" data-i="' + i + '">' + roles.concat(roles.includes(a.role) ? [] : [a.role]).map((r) => opt(r, r, a.role)).join("") + "</select>" +
+      assign +
+      '<span class="due-cell"><input type="number" min="0" aria-label="Days" data-action="rule-act" data-k="dueDays" data-i="' + i + '" value="' + esc(a.dueDays) + '">' +
+        '<select aria-label="Due date counted from" data-action="rule-act" data-k="dueFrom" data-i="' + i + '">' + opt("trigger", "days after it runs", a.dueFrom) + opt("project", "days before project due", a.dueFrom) + "</select></span>" +
+      '<select aria-label="Stage" data-action="rule-act" data-k="stage" data-i="' + i + '">' + opt("", "Project's column", a.stage || "") + cols.map((c) => opt(c, c, a.stage)).join("") + "</select>" +
+      '<button class="btn small ghost" title="Remove task" data-action="act-remove" data-i="' + i + '">×</button></div>';
+  }).join("");
+  return '<div style="border-top:1px solid var(--line)"><div class="panel-head" style="background:var(--accent-soft)"><h2>' + (S.autoEdit.isNew ? "New rule" : "Edit rule") + "</h2>" +
+      '<span class="spacer"></span>' + (S.autoEdit.dirty ? '<span class="hint">Unsaved changes</span>' : "") +
+      (S.autoEdit.isNew ? "" : '<button class="btn danger small" data-action="del-rule">Delete rule</button>') + '<button class="btn small" data-action="cancel-rule">Close</button><button class="btn primary small" data-action="save-rule">Save rule</button></div>' +
+    when +
+    '<div class="rule-when" style="padding-bottom:4px"><span class="eyebrow">Then add these tasks to the project</span></div>' +
+    '<div class="arow arow-head"><span>Task</span><span>Role</span><span>Assign to</span><span>Due</span><span>Stage</span><span></span></div>' +
+    rows +
+    '<div class="addrow"><button class="btn small" data-action="act-add">Add another task</button><span class="hint">“Least busy” picks whoever in that role on this board has the fewest open tasks. A rule runs once per project for each column move or finished task, so moving a project back and forth won\'t add duplicates.</span></div></div>';
 }
 
 /* team */
@@ -849,6 +929,69 @@ async function zoomSearch(pid, query) {
   S.zoom.status = "done"; render();
 }
 
+/* ---------- automations ---------- */
+// A rule watches one board for a project moving into a column, or a matching task being completed, and adds tasks to that project.
+// It runs in the browser that made the change, so each event fires once for the whole team.
+const ASSIGN_ROLE = "@role";   // assign value meaning "least busy person in the task's role"
+function openCount(memberId) { return Object.values(S.tasks).filter((t) => t.assigneeId === memberId && t.status !== "done").length; }
+function leastBusy(b, role) {
+  const ms = Object.values(S.members).filter((m) => m.role === role && (m.boards || BOARDS).includes(b));
+  ms.sort((x, y) => openCount(x.id) - openCount(y.id) || x.name.localeCompare(y.name));
+  return ms.length ? ms[0].id : null;
+}
+function ruleSummary(r) {
+  const tr = r.trigger || {};
+  if (tr.type === "column") return "When a project moves into " + tr.column;
+  return "When " + (tr.match ? "a task named like “" + tr.match + "”" : "any task") + (tr.role ? " (" + tr.role + ")" : "") + " is completed";
+}
+function assignLabel(a) { return a.assign === ASSIGN_ROLE ? "the least busy " + a.role + " person" : a.assign ? memberName(a.assign) : a.role + ", unassigned"; }
+function dueLabel(a) {
+  const n = Number(a.dueDays) || 0;
+  if (a.dueFrom === "project") return "due " + (n ? n + " day" + (n === 1 ? "" : "s") + " before" : "on") + " the project due date";
+  return n ? "due " + n + " day" + (n === 1 ? "" : "s") + " later" : "due the same day";
+}
+function ruleMatchesTask(r, t) {
+  const tr = r.trigger || {};
+  if (tr.type !== "task" || (!tr.match && !tr.role)) return false;
+  if (tr.role && t.role !== tr.role) return false;
+  return !tr.match || String(t.title || "").toLowerCase().includes(tr.match.toLowerCase());
+}
+function runAutomations(kind, p, detail) {
+  if (!p || p.archived) return;
+  const rules = Object.values(S.automations).filter((r) => r.enabled !== false && r.board === p.board &&
+    (kind === "column" ? r.trigger && r.trigger.type === "column" && r.trigger.column === detail : ruleMatchesTask(r, detail)));
+  if (!rules.length) return;
+  const key = kind === "column" ? "col:" + detail : "task:" + detail.id;
+  const existing = tasksOf(p.id);
+  const cols = columnsFor(p.board);
+  let n = existing.length;
+  const added = [];
+  for (const r of rules) {
+    if (existing.some((t) => t.autoRule === r.id && t.autoKey === key)) continue;   // already ran for this move or task
+    for (const a of r.actions || []) {
+      if (!a.title) continue;
+      const off = Number(a.dueDays) || 0;
+      const due = a.dueFrom === "project" ? (p.due ? addDays(p.due, -off) : null) : addDays(today(), off);
+      const assigneeId = a.assign === ASSIGN_ROLE ? leastBusy(p.board, a.role) : a.assign && S.members[a.assign] ? a.assign : null;
+      const stage = a.stage && cols.includes(a.stage) ? a.stage : cols.includes(p.column) ? p.column : cols[0];
+      write("tasks", uid(), { projectId: p.id, board: p.board, title: a.title, role: a.role, stage, due, status: "todo", assigneeId, dependsOn: [], order: n++,
+        source: "automation", sourceNote: ruleSummary(r), autoRule: r.id, autoKey: key, createdAt: new Date().toISOString() });
+      added.push(a.title);
+    }
+  }
+  if (added.length) toast("Automation added " + (added.length === 1 ? "“" + added[0] + "”" : added.length + " tasks") + " to " + p.name);
+}
+function moveProject(p, column) {
+  if (!p || p.column === column) return;
+  write("projects", p.id, { column }, "update");
+  runAutomations("column", S.projects[p.id], column);
+}
+function newRuleDraft(b) {
+  const cols = columnsFor(b);
+  return { board: b, enabled: true, trigger: { type: "column", column: cols[1] || cols[0], match: "", role: "" }, actions: [newAction(b)] };
+}
+function newAction(b, role) { return { key: uid(), title: "", role: role || ROLES[b][0], assign: ASSIGN_ROLE, dueDays: 2, dueFrom: "trigger", stage: "" }; }
+
 /* ---------- actions ---------- */
 let toastTimer = null;
 function toast(msg) {
@@ -920,7 +1063,7 @@ document.addEventListener("click", (e) => {
       const t = S.tasks[id]; if (!t) break;
       const next = STATUS_NEXT[t.status || "todo"];
       write("tasks", id, { status: next, doneAt: next === "done" ? new Date().toISOString() : null }, "update");
-      if (next === "done") toast("Marked done: " + t.title);
+      if (next === "done") { toast("Marked done: " + t.title); runAutomations("task", S.projects[t.projectId], S.tasks[id]); }
       break;
     }
     case "claim": if (S.me) { write("tasks", id, { assigneeId: S.me }, "update"); toast("Assigned to you"); } break;
@@ -930,7 +1073,8 @@ document.addEventListener("click", (e) => {
       const p = S.projects[S.modal.id];
       const post = Object.values(S.templates).find((t) => t.board === "post");
       const nid = createProject("post", { name: p.name, client: p.client, number: p.number, due: null, column: columnsFor("post")[0], tpl: post ? post.id : null, fromProject: p.id });
-      write("projects", p.id, { column: columnsFor("pre")[columnsFor("pre").length - 1], handedOffTo: nid }, "update");
+      write("projects", p.id, { handedOffTo: nid }, "update");
+      moveProject(p, columnsFor("pre")[columnsFor("pre").length - 1]);
       S.view = "post"; S.modal = { type: "project", id: nid }; toast("Created in post sales. Set its due date to schedule the tasks."); render();
       break;
     }
@@ -957,6 +1101,25 @@ document.addEventListener("click", (e) => {
       cols.splice(i, 1); saveConfigColumns(b, cols); break;
     }
     case "col-add": { const b = el.dataset.board; const cols = columnsFor(b).slice(); let n = "New column", k = 2; while (cols.includes(n)) n = "New column " + k++; cols.push(n); saveConfigColumns(b, cols); break; }
+    /* automations */
+    case "new-rule": S.autoEdit = { id: uid(), isNew: true, dirty: true, draft: newRuleDraft(el.dataset.board) }; render(); break;
+    case "edit-rule": { const r = S.automations[id]; if (!r) break; S.autoEdit = { id, draft: clone({ board: r.board, enabled: r.enabled !== false, trigger: Object.assign({ type: "column", column: "", match: "", role: "" }, r.trigger), actions: (r.actions || []).map((x) => Object.assign(newAction(r.board), x)) }) }; render(); break; }
+    case "cancel-rule": S.autoEdit = null; render(); break;
+    case "act-add": { const d = S.autoEdit.draft; const last = d.actions[d.actions.length - 1]; d.actions.push(newAction(d.board, last && last.role)); S.autoEdit.dirty = true; render(); break; }
+    case "act-remove": { const d = S.autoEdit.draft; d.actions.splice(+el.dataset.i, 1); if (!d.actions.length) d.actions.push(newAction(d.board)); S.autoEdit.dirty = true; render(); break; }
+    case "save-rule": {
+      const ae = S.autoEdit, d = clone(ae.draft);
+      d.actions = d.actions.map((x) => Object.assign(x, { title: String(x.title || "").trim() })).filter((x) => x.title);
+      d.trigger.match = String(d.trigger.match || "").trim();
+      if (d.trigger.type === "column") { d.trigger.match = ""; d.trigger.role = ""; } else d.trigger.column = "";
+      if (d.trigger.type === "column" && !d.trigger.column) { toast("Pick the column that starts this rule."); break; }
+      if (d.trigger.type === "task" && !d.trigger.match && !d.trigger.role) { toast("Say which finished task starts this rule: part of its name, a role, or both."); break; }
+      if (!d.actions.length) { toast("Give the rule at least one task to add."); break; }
+      const prev = S.automations[ae.id];
+      write("automations", ae.id, Object.assign(d, { createdAt: (prev && prev.createdAt) || new Date().toISOString() }));
+      S.autoEdit = null; toast("Rule saved"); render(); break;
+    }
+    case "del-rule": if (armed(el)) { write("automations", S.autoEdit.id, null, "delete"); S.autoEdit = null; toast("Rule deleted"); render(); } break;
     /* team */
     case "this-is-me": { S.me = id; LS.set("me", id); if (myUserId && !S.members[id].userId) write("members", id, { userId: myUserId }, "update"); render(); break; }
     case "del-member": if (armed(el)) { write("members", id, null, "delete"); Object.values(S.tasks).forEach((t) => { if (t.assigneeId === id) write("tasks", t.id, { assigneeId: null }, "update"); }); if (S.me === id) { S.me = null; LS.set("me", null); } } break;
@@ -980,6 +1143,7 @@ document.addEventListener("change", (e) => {
     case "project-field": {
       const k = el.dataset.k, v = el.value.trim();
       if (k === "name" && !v) { toast("A project needs a name."); render(); break; }
+      if (k === "column") { moveProject(S.projects[S.modal.id], v); break; }
       write("projects", S.modal.id, { [k]: k === "due" ? v || null : v }, "update"); break;
     }
     case "task-field": {
@@ -992,6 +1156,9 @@ document.addEventListener("change", (e) => {
       el.checked ? set.add(el.dataset.dep) : set.delete(el.dataset.dep);
       write("tasks", id, { dependsOn: Array.from(set) }, "update"); break;
     }
+    case "rule-toggle": write("automations", id, { enabled: el.checked }, "update"); break;
+    case "rule-trig": { const d = S.autoEdit.draft; d.trigger[el.dataset.k] = el.value; if (el.dataset.k === "type" && el.value === "column" && !d.trigger.column) d.trigger.column = columnsFor(d.board)[0]; S.autoEdit.dirty = true; render(); break; }
+    case "rule-act": { const x = S.autoEdit.draft.actions[+el.dataset.i]; if (!x) break; const k = el.dataset.k; x[k] = k === "dueDays" ? Math.max(0, parseInt(el.value, 10) || 0) : el.value; S.autoEdit.dirty = true; render(); break; }
     case "tpl-name": S.tplEdit.draft.name = el.value.trim() || S.tplEdit.draft.name; S.tplEdit.dirty = true; render(); break;
     case "step-field": { const s = S.tplEdit.draft.steps[+el.dataset.i]; s[el.dataset.k] = el.dataset.k === "offsetDays" ? Math.max(0, parseInt(el.value, 10) || 0) : el.value; S.tplEdit.dirty = true; render(); break; }
     case "step-dep": { const s = S.tplEdit.draft.steps[+el.dataset.i]; const set = new Set(s.dependsOn || []); el.checked ? set.add(el.dataset.key) : set.delete(el.dataset.key); s.dependsOn = Array.from(set); S.tplEdit.dirty = true; render(); break; }
@@ -1001,6 +1168,11 @@ document.addEventListener("change", (e) => {
       cols[i] = v; saveConfigColumns(b, cols);
       activeProjects().forEach((p) => { if (p.board === b && p.column === old) write("projects", p.id, { column: v }, "update"); });
       Object.values(S.tasks).forEach((t) => { if (t.board === b && t.stage === old) write("tasks", t.id, { stage: v }, "update"); });
+      Object.values(S.automations).forEach((r) => {
+        if (r.board !== b) return;
+        const trig = r.trigger && r.trigger.column === old, acts = (r.actions || []).some((x) => x.stage === old);
+        if (trig || acts) write("automations", r.id, { trigger: Object.assign({}, r.trigger, trig ? { column: v } : {}), actions: (r.actions || []).map((x) => (x.stage === old ? Object.assign({}, x, { stage: v }) : x)) }, "update");
+      });
       break;
     }
     case "member-field": { const v = el.value.trim(); if (!v) { render(); break; } write("members", id, { [el.dataset.k]: v }, "update"); break; }
@@ -1039,13 +1211,13 @@ document.addEventListener("dragover", (e) => { const col = e.target.closest && e
 document.addEventListener("drop", (e) => {
   const col = e.target.closest && e.target.closest("[data-drop-col]"); if (!col || !dragId) return;
   e.preventDefault(); const p = S.projects[dragId];
-  if (p && p.column !== col.dataset.dropCol) write("projects", p.id, { column: col.dataset.dropCol }, "update");
+  moveProject(p, col.dataset.dropCol);
   dragId = null;
 });
 
 /* ---------- boot ---------- */
 const hashView = (location.hash || "").slice(1);
-S.view = ["pre", "post", "mine", "alerts", "templates", "team"].includes(hashView) ? hashView : (LS.get("view") || "pre");
+S.view = ["pre", "post", "mine", "alerts", "templates", "automations", "team"].includes(hashView) ? hashView : (LS.get("view") || "pre");
 render();
 connect();
 // re-evaluate due dates when the day rolls over

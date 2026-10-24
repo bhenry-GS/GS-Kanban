@@ -6,6 +6,7 @@ Shared Kanban boards for the GS team:
 - **Projects with several tasks at once.** Each task has a role, an assignee, a due date and optional prerequisites.
 - **Pathway templates.** A new project picks up its tasks from a template, with due dates counted back from the project due date. Templates are edited in the app.
 - **Alerts** for late tasks, prerequisites that aren't done ahead of a due date, unassigned work due this week, and projects nearing their deadline.
+- **Automations**: rules that add tasks when a project moves into a column or a matching task is completed. Each added task gets a role, an assignee (a named person, or whoever in that role has the fewest open tasks) and a due date counted from when the rule runs or back from the project due date. A rule runs once per project for each move or finished task. Rules run in the browser that made the change, so projects created or updated by D-Tools sync don't trigger them.
 - **My tasks**: a personal list for each person, sorted by due date.
 - **D-Tools Cloud sync**: open D-Tools projects become Post sales projects and open opportunities become Pre sales projects, placed in the column that matches their D-Tools stage.
 

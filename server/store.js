@@ -2,7 +2,7 @@
 // each document is a JSON object addressed by (collection, id).
 const Database = require("better-sqlite3");
 
-const COLLECTIONS = ["members", "projects", "tasks", "templates", "config"];
+const COLLECTIONS = ["members", "projects", "tasks", "templates", "config", "automations"];
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
